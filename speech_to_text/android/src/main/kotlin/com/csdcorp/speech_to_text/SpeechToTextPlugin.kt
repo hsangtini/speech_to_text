@@ -7,6 +7,7 @@ import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothHeadset
 import android.bluetooth.BluetoothProfile
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -22,6 +23,7 @@ import android.speech.*
 import android.speech.SpeechRecognizer.createOnDeviceSpeechRecognizer
 import android.speech.SpeechRecognizer.createSpeechRecognizer
 import android.util.Log
+import android.widget.Toast
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -81,7 +83,7 @@ const val pluginChannelName = "plugin.csdcorp.com/speech_to_text"
 public class SpeechToTextPlugin :
         MethodCallHandler, RecognitionListener,
         PluginRegistry.RequestPermissionsResultListener, FlutterPlugin,
-        ActivityAware {
+        ActivityAware, PluginRegistry.ActivityResultListener {
     private var pluginContext: Context? = null
     private var channel: MethodChannel? = null
     private val minSdkForSpeechSupport = 21
@@ -163,11 +165,13 @@ public class SpeechToTextPlugin :
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
         currentActivity = binding.activity
         binding.addRequestPermissionsResultListener(this)
+        binding.addActivityResultListener(this)
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         currentActivity = binding.activity
         binding.addRequestPermissionsResultListener(this)
+        binding.addActivityResultListener(this)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -280,6 +284,9 @@ public class SpeechToTextPlugin :
         return !listening
     }
 
+
+    private val resultRequestCode = 9191
+
     private fun startListening(result: Result, languageTag: String, partialResults: Boolean,
                                listenModeIndex: Int, onDevice: Boolean) {
         if (sdkVersionTooLow() || isNotInitialized() || isListening()) {
@@ -299,7 +306,24 @@ public class SpeechToTextPlugin :
         setupRecognizerIntent(languageTag, partialResults, listenMode, onDevice )
         handler.post {
             run {
-                speechRecognizer?.startListening(recognizerIntent)
+                if(speechRecognizer == null){
+                    try {
+//                        recognizerIntent?.putExtra("android.speech.extra.GET_AUDIO_FORMAT", "audio/AMR")
+//                        recognizerIntent?.putExtra("android.speech.extra.GET_AUDIO", true)
+                        recognizerIntent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NO_HISTORY)
+                        currentActivity?.startActivityForResult(recognizerIntent, resultRequestCode)
+                    } catch ( e : ActivityNotFoundException){
+
+                        Toast.makeText(currentActivity, "Please install \"Speech Services by Google\" to run this service.", Toast.LENGTH_LONG).show();
+                        val googleIntent = Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://play.google.com/store/apps/details?id=com.google.android.tts")
+                        )
+                        currentActivity?.startActivity(googleIntent)
+                    }
+                } else {
+                    speechRecognizer?.startListening(recognizerIntent)
+                }
             }
         }
         speechStartTime = System.currentTimeMillis()
@@ -435,6 +459,39 @@ public class SpeechToTextPlugin :
             activeBluetooth = null
         }
     }
+
+
+    private fun updateActivityResults(speechBundle: Bundle?, isFinal: Boolean) {
+        if (isDuplicateFinal( isFinal )) {
+            debugLog("Discarding duplicate final")
+            return
+        }
+        val userSaid = speechBundle?.getStringArrayList(RecognizerIntent.EXTRA_RESULTS)
+        if (null != userSaid && userSaid.isNotEmpty()) {
+            val speechResult = JSONObject()
+            speechResult.put("finalResult", isFinal)
+            val confidence = speechBundle?.getFloatArray(RecognizerIntent.EXTRA_CONFIDENCE_SCORES)
+            val alternates = JSONArray()
+            for (resultIndex in 0..userSaid.size - 1) {
+                val speechWords = JSONObject()
+                speechWords.put("recognizedWords", userSaid[resultIndex])
+                if (null != confidence && confidence.size >= userSaid.size) {
+                    speechWords.put("confidence", confidence[resultIndex])
+                } else {
+                    speechWords.put("confidence", missingConfidence)
+                }
+                alternates.put(speechWords)
+            }
+            speechResult.put("alternates", alternates)
+            val jsonResult = speechResult.toString()
+            debugLog("Calling results callback")
+            resultSent = true
+            channel?.invokeMethod(SpeechToTextCallbackMethods.textRecognition.name,
+                jsonResult)
+        } else {
+            debugLog("Results null or empty")
+        }
+    }
     
     private fun updateResults(speechBundle: Bundle?, isFinal: Boolean) {
         if (isDuplicateFinal( isFinal )) {
@@ -466,6 +523,23 @@ public class SpeechToTextPlugin :
         } else {
             debugLog("Results null or empty")
         }
+    }
+
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
+        when (requestCode) {
+            resultRequestCode -> {
+                if (resultCode == Activity.RESULT_OK && data != null) {
+                    updateActivityResults(data.extras, true)
+                    notifyListening(isRecording = false)
+                } else {
+                    onError(resultCode)
+                }
+                return true
+            }
+
+        }
+        return false
     }
 
     private fun isDuplicateFinal( isFinal: Boolean ) : Boolean {
@@ -586,7 +660,12 @@ public class SpeechToTextPlugin :
         val list: List<ResolveInfo> = packageManager.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
         debugLog("RecognitionService, found: ${list.size}")
         list.forEach() { it.serviceInfo?.let { it1 -> debugLog("RecognitionService: packageName: ${it1.packageName}, name: ${it1.name}") } }
-        return list.firstOrNull()?.serviceInfo?.let { ComponentName(it.packageName, it.name) }
+        var tts: ResolveInfo? = list.firstOrNull { it.serviceInfo.packageName == "com.google.android.tts"}
+        if(tts == null){
+            tts = list.firstOrNull { it.serviceInfo.packageName.contains(".google.") && it.serviceInfo.packageName != "com.google.android.as"}
+        }
+        return tts?.serviceInfo?.let { ComponentName(it.packageName, it.name) }
+//        return list.firstOrNull()?.serviceInfo?.let { ComponentName(it.packageName, it.name) }
     }
 
     private fun createRecognizer(onDevice: Boolean) {
@@ -600,12 +679,15 @@ public class SpeechToTextPlugin :
             run {
                 debugLog("Creating recognizer")
                 if (intentLookup) {
-                    speechRecognizer = createSpeechRecognizer(
-                        pluginContext,
-                        pluginContext?.findComponentName()
-                    ).apply {
-                        debugLog("Setting listener after intent lookup")
-                        setRecognitionListener(this@SpeechToTextPlugin)
+                    val findComponentName = pluginContext?.findComponentName();
+                    if(findComponentName != null){
+                        speechRecognizer = createSpeechRecognizer(
+                            pluginContext,
+                            findComponentName
+                        ).apply {
+                            debugLog("Setting listener after intent lookup")
+                            setRecognitionListener(this@SpeechToTextPlugin)
+                        }
                     }
                 } else {
                         var supportsLocal = false
