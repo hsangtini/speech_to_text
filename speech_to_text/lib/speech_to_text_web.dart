@@ -18,6 +18,7 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
   static const _doneNoResult = 'doneNoResult';
   bool _resultSent = false;
   bool _doneSent = false;
+  bool _aggregateResults = true;
 
   /// Registers this class as the default instance of [SpeechToTextPlatform].
   static void registerWith(Registrar registrar) {
@@ -60,6 +61,8 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
     try {
       _webSpeech = html.SpeechRecognition();
       if (null != _webSpeech) {
+        _aggregateResults =
+            BalancedAlternates.isAggregateResultsEnabled(options);
         _webSpeech!.onError.listen((error) => _onError(error));
         _webSpeech!.onStart.listen((startEvent) => _onSpeechStart(startEvent));
         _webSpeech!.onSpeechStart
@@ -139,14 +142,15 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
   @override
   Future<bool> listen(
       {String? localeId,
-      partialResults = true,
-      onDevice = false,
-      int listenMode = 0,
-      sampleRate = 0}) async {
+      @deprecated partialResults = true,
+      @deprecated onDevice = false,
+      @deprecated int listenMode = 0,
+      @deprecated sampleRate = 0,
+      SpeechListenOptions? options}) async {
     if (null == _webSpeech) return false;
     _webSpeech!.onResult.listen((speechEvent) => _onResult(speechEvent));
-    _webSpeech!.interimResults = partialResults;
-    _webSpeech!.continuous = partialResults;
+    _webSpeech!.interimResults = options?.partialResults ?? partialResults;
+    _webSpeech!.continuous = options?.partialResults ?? partialResults;
     if (null != localeId) {
       _webSpeech!.lang = localeId;
     }
@@ -219,19 +223,11 @@ class SpeechToTextPlugin extends SpeechToTextPlatform {
         num? confidence = js_util.getProperty(alt, 'confidence');
         if (null != transcript) {
           balanced.add(resultIndex, transcript, confidence?.toDouble() ?? 1.0);
-          // final fullTranscript =
-          //     recogResults[altIndex].recognizedWords + transcript;
-          // final fullConfidence = min(
-          //     recogResults[altIndex].confidence, confidence?.toDouble() ?? 1.0);
-          // recogResults[altIndex] =
-          //     SpeechRecognitionWords(fullTranscript, fullConfidence.toDouble());
-          // recogResults
-          //     .add(SpeechRecognitionWords(transcript, confidence.toDouble()));
         }
       }
       ++resultIndex;
     }
-    recogResults = balanced.getAlternates();
+    recogResults = balanced.getAlternates(_aggregateResults);
     var result = SpeechRecognitionResult(recogResults, isFinal);
     onTextRecognition?.call(jsonEncode(result.toJson()));
     _resultSent = true;

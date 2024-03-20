@@ -111,11 +111,16 @@ public class SwiftSpeechToTextPlugin: NSObject, FlutterPlugin {
             initialize( result )
         case SwiftSpeechToTextMethods.listen.rawValue:
             guard let argsArr = call.arguments as? Dictionary<String,AnyObject>,
-                let partialResults = argsArr["partialResults"] as? Bool, let onDevice = argsArr["onDevice"] as? Bool, let listenModeIndex = argsArr["listenMode"] as? Int, let sampleRate = argsArr["sampleRate"] as? Int
+                let partialResults = argsArr["partialResults"] as? Bool, 
+                    let onDevice = argsArr["onDevice"] as? Bool,
+                    let listenModeIndex = argsArr["listenMode"] as? Int,
+                    let sampleRate = argsArr["sampleRate"] as? Int,
+                    let autoPunctuation = argsArr["autoPunctuation"] as? Bool,
+                    let enableHaptics = argsArr["enableHaptics"] as? Bool
                 else {
                     DispatchQueue.main.async {
                         result(FlutterError( code: SpeechToTextErrors.missingOrInvalidArg.rawValue,
-                                             message:"Missing arg partialResults, onDevice, listenMode, and sampleRate are required",
+                                             message:"Missing arg partialResults, onDevice, listenMode, autoPunctuatio, enableHaptics and sampleRate are required",
                                              details: nil ))
                     }
                     return
@@ -133,7 +138,7 @@ public class SwiftSpeechToTextPlugin: NSObject, FlutterPlugin {
                 return
             }
             
-            listenForSpeech( result, localeStr: localeStr, partialResults: partialResults, onDevice: onDevice, listenMode: listenMode, sampleRate: sampleRate )
+            listenForSpeech( result, localeStr: localeStr, partialResults: partialResults, onDevice: onDevice, listenMode: listenMode, sampleRate: sampleRate, autoPunctuation: autoPunctuation, enableHaptics: enableHaptics )
         case SwiftSpeechToTextMethods.stop.rawValue:
             stopSpeech( result )
         case SwiftSpeechToTextMethods.cancel.rawValue:
@@ -348,7 +353,8 @@ public class SwiftSpeechToTextPlugin: NSObject, FlutterPlugin {
         stopping = false
     }
     
-    private func listenForSpeech( _ result: @escaping FlutterResult, localeStr: String?, partialResults: Bool, onDevice: Bool, listenMode: ListenMode, sampleRate: Int ) {
+    private func listenForSpeech( _ result: @escaping FlutterResult, localeStr: String?, partialResults: Bool, 
+                                  onDevice: Bool, listenMode: ListenMode, sampleRate: Int, autoPunctuation: Bool, enableHaptics: Bool ) {
         if ( nil != currentTask || listening ) {
             sendBoolResult( false, result );
             return
@@ -374,13 +380,16 @@ public class SwiftSpeechToTextPlugin: NSObject, FlutterPlugin {
             }
             rememberedAudioCategory = self.audioSession.category
             rememberedAudioCategoryOptions = self.audioSession.categoryOptions
-            try self.audioSession.setCategory(AVAudioSession.Category.playAndRecord, options: [.defaultToSpeaker,.allowBluetooth,.allowBluetoothA2DP])
+            try self.audioSession.setCategory(AVAudioSession.Category.playAndRecord, options: [.defaultToSpeaker,.allowBluetooth,.allowBluetoothA2DP,.mixWithOthers])
             //            try self.audioSession.setMode(AVAudioSession.Mode.measurement)
             if ( sampleRate > 0 ) {
                 try self.audioSession.setPreferredSampleRate(Double(sampleRate))
             }
             try self.audioSession.setMode(AVAudioSession.Mode.default)
             try self.audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            if #available(iOS 13.0, *) {
+                try self.audioSession.setAllowHapticsAndSystemSoundsDuringRecording(enableHaptics)
+            }
             if let sound = listeningSound {
                 self.onPlayEnd = {()->Void in
                     if ( !self.failedListen ) {
@@ -417,7 +426,9 @@ public class SwiftSpeechToTextPlugin: NSObject, FlutterPlugin {
             default:
                 break
             }
-            
+            if #available(iOS 16.0, *) {
+                currentRequest.addsPunctuation = autoPunctuation
+            }
             self.currentTask = self.recognizer?.recognitionTask(with: currentRequest, delegate: self )
             let recordingFormat = inputNode?.outputFormat(forBus: self.busForNodeTap)
             let theSampleRate = audioSession.sampleRate
@@ -542,7 +553,9 @@ public class SwiftSpeechToTextPlugin: NSObject, FlutterPlugin {
     }
     
     private func invokeFlutter( _ method: SwiftSpeechToTextCallbackMethods, arguments: Any? ) {
-        os_log("invokeFlutter %{PUBLIC}@", log: pluginLog, type: .debug, method.rawValue )
+        if(method != SwiftSpeechToTextCallbackMethods.soundLevelChange){
+            os_log("invokeFlutter %{PUBLIC}@", log: pluginLog, type: .debug, method.rawValue )
+        }
         DispatchQueue.main.async {
             self.channel.invokeMethod( method.rawValue, arguments: arguments )
         }
@@ -585,12 +598,24 @@ extension SwiftSpeechToTextPlugin : SFSpeechRecognitionTaskDelegate {
             if let err = task.error as NSError? {
                 var errorMsg: String
                 switch err.code {
+                case 102:
+                    errorMsg = "error_assets_not_installed"
                 case 201:
                     errorMsg = "error_speech_recognizer_disabled"
                 case 203:
                     errorMsg = "error_retry"
+                case 301:
+                    errorMsg = "error_request_cancelled"
+                case 1100:
+                    errorMsg = "error_speech_recognizer_already_active"
+                case 1101:
+                    errorMsg = "error_speech_recognizer_connection_invalidated"
+                case 1107:
+                    errorMsg = "error_speech_recognizer_connection_interrupted"
                 case 1110:
                     errorMsg = "error_no_match"
+                case 1700:
+                    errorMsg = "error_speech_recognizer_request_not_authorized"
                 default:                    
                     errorMsg = "error_unknown (\(err.code))"
                 }

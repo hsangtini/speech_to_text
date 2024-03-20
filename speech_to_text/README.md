@@ -1,6 +1,6 @@
 # speech_to_text
 
-[![pub package](https://img.shields.io/badge/pub-v6.4.1-blue)](https://pub.dartlang.org/packages/speech_to_text) [![build status](https://github.com/csdcorp/speech_to_text/workflows/build/badge.svg)](https://github.com/csdcorp/speech_to_text/actions?query=workflow%3Abuild) [![codecov](https://codecov.io/gh/csdcorp/speech_to_text/branch/main/graph/badge.svg?token=4LV3HESMS4)](undefined)
+[![pub package](https://img.shields.io/badge/pub-v6.6.2-blue)](https://pub.dartlang.org/packages/speech_to_text) [![build status](https://github.com/csdcorp/speech_to_text/workflows/Test/badge.svg)](https://github.com/csdcorp/speech_to_text/actions?query=workflow%3ATest) [![codecov](https://codecov.io/gh/csdcorp/speech_to_text/branch/main/graph/badge.svg?token=4LV3HESMS4)](undefined)
 
 A library that exposes device specific speech recognition capability.
 
@@ -9,11 +9,25 @@ capabilities of the underlying platform in Flutter. It supports Android, iOS and
 target use cases for this library are commands and short phrases, not continuous spoken
 conversion or always on listening. 
 
+## Platform Support
+            
+| Support | Android | iOS | MacOS | Web* | Linux | Windows |
+| :-----: | :-----: | :-: | :---: | :-: | :---: | :-----: |
+|   build    | ✅  |  ✅   | ✅  |  ✅   |   ✘    | ✘    |
+|   speech    | ✅  |  ✅   | ✘  |   ✅  |    ✘   | ✘    |
+
+_build: means you can build and run with the plugin on that platform_
+
+_speech: means most speech recognition features work. Platforms with build but not speech report false for `initialize`_
+
+\* _Only some browsers are supported, see [here](https://caniuse.com/?search=Web%20Speech%20API)_
+
 ## Recent Updates
 
-6.4.0 Better support for newer Android devices, locales a
+6.6.0 `listen` now uses 'SpeechListenOptions' to specify the options for the current listen session, including new
+options for controlling haptics and punctuation during recognition on iOS. 
 
-6.2.0 Upgrades for Flutter 3.x thanks to [jinosh05](https://github.com/jinosh05) for that!
+6.5.0 New `initialize` option to improve support for some mobile browsers, `SpeechToText.webDoNotAggregate`. Test the browser user agent to see if it should be used. 
 
 *Note*: Feedback from any test devices is welcome. 
 
@@ -153,6 +167,31 @@ class _MyHomePageState extends State<MyHomePage> {
 }
 ```
 
+### Example Apps
+
+In the example directory you'll find a few different example apps that demonstrate how to use the 
+plugin. 
+
+#### Basic example ([example/lib/main.dart](https://github.com/csdcorp/speech_to_text/blob/main/speech_to_text/example/lib/main.dart))
+This shows how to initialize and use the plugin and allows many of the options to be set through 
+a simple UI. This is probably the first example to look at to understand how to use the plugin. 
+
+#### Provide example ([example/lib/provider_example.dart](https://github.com/csdcorp/speech_to_text/blob/main/speech_to_text/example/lib/provider_example.dart))
+If you are using the (Provider)[https://pub.dev/packages/provider] package in Flutter then this example shows how 
+to use the plugin as a provider throught the `SpeechToTextProvider` class. 
+
+#### Plugin stress test ([example/lib/stress.dart](https://github.com/csdcorp/speech_to_text/blob/main/speech_to_text/example/lib/stress.dart))
+The plugin opens and closes several platform resources as it is used. To help ensure that the plugin 
+does not leak resources this stress test loops through various operations to make it easier to 
+track resource usage. This is mostly an internal development tool so not as useful for reference 
+purposes. 
+
+#### Audio player interaction ([examples/audio_player_interaction/lib/main.dart](https://github.com/csdcorp/speech_to_text/blob/main/examples/audio_player_interaction/lib/main.dart))
+A common use case is to have this plugin and an audio playback plugin working together. This example shows one 
+way to make them work well together. You can find this in 
+
+
+
 ### Initialize once
 The `initialize` method only needs to be called once per application session. After that `listen`, 
 `start`, `stop`, and `cancel` can be used to interact with the plugin. Subsequent calls to `initialize` 
@@ -260,7 +299,7 @@ there appears to be no way to change that behaviour.
 
 This is a feature of the Android OS and there is no supported way to disable it. 
 
-Android build
+### Android build
 Version 5.2.0 of the plugin and later require at least `compileSdkVersion 31` for the Android build.  This property can be set in the `build.gradle` file.
 
 ### Continuous speech recognition

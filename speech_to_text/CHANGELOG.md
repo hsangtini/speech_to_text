@@ -1,5 +1,41 @@
 # Changelog
 
+## 6.6.2
+
+### New
+* on iOS now mixes audio with other uses to allow multiple audio plugins to coexist
+
+## 6.6.1
+
+### New
+* More detailed error returns on iOS
+* Updated JS dependency to 0.7.1 (would it kill you to release a 1.0 version?)
+
+## 6.6.0
+
+### New
+* `listen` now has a new `SpeechListenOptions listenOptions` parameter to specify the recognizer 
+options for the listen session. Some of the separate parameters have been deprecated as a 
+result. See the `listen` method for documentation. 
+*  `SpeechListenOptions.enableHapticFeedback` is a new option which allows haptic feedback during
+speech recognition on iOS. Usually haptics are disabled to avoid interfering with the microphone. 
+* `SpeechListenOptions.autoPunctuation` is a new option which turns on automatic punction inference 
+during speech recognition on iOS. 
+
+## 6.5.1
+
+### Fix
+* Removed BLUETOOTH_CONNECT permission from the plugin Android manifest, should be in apps
+
+## 6.5.0
+
+### New
+* `SpeechToText.webDoNotAggregate` option for use in the `option`
+parameter of the `initialize` method. This can be used to change the 
+behaviour on some browsers that implement the speech API differently. 
+Test the user agent to decided whether to set this option. Currently 
+it seems to be required on mobile Android to prevent duplicate results. 
+
 ## 6.4.1
 
 ### Fix
